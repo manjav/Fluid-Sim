@@ -39,12 +39,20 @@ const float2 interactionInputPoint;
 const float interactionInputStrength;
 const float interactionInputRadius;
 
-// Obstacles:
+// Box obstacles:
 // - Obstacles: (centre.xy, halfSize.xy)
 // - ObstacleRotations: (cos(theta), sin(theta)) where theta is obstacle rotation in radians
 StructuredBuffer<float4> Obstacles;
 StructuredBuffer<float2> ObstacleRotations;
 const uint obstacleCount;
+
+// Polygon obstacles:
+// - PolygonVertices: packed as groups of polygonMaxVertices per polygon (world-space positions)
+// - PolygonVertexCounts: number of valid vertices per polygon
+StructuredBuffer<float2> PolygonVertices;
+StructuredBuffer<int>   PolygonVertexCounts;
+uint polygonObstacleCount;
+uint polygonMaxVertices;
 
 float DensityKernel(float dst, float radius)
 {
@@ -216,6 +224,82 @@ void HandleCollisions(uint particleIndex)
 			{
 				vel = vel - 2 * vn * worldNormal;
 				vel *= collisionDamping;
+			}
+		}
+	}
+
+	// Collide particle against convex polygon obstacles
+	for (uint p = 0; p < polygonObstacleCount; p++)
+	{
+		int vertexCount = PolygonVertexCounts[p];
+		if (vertexCount < 3)
+		{
+			continue;
+		}
+
+		// Approximate polygon centroid (used to determine outward normal direction)
+		float2 centrid = 0;
+		for (int i = 0; i < vertexCount; i++)
+		{
+			centrid += PolygonVertices[p * polygonMaxVertices + i];
+		}
+		centrid /= (float)vertexCount;
+
+		// Track deepest penetration (most negative signed distance)
+		float maxSignedDist = -1e9;
+		float2 bestNormal = float2(0, 0);
+		bool inside = true;
+
+		for (int i = 0; i < vertexCount; i++)
+		{
+			int j = (i + 1) == vertexCount ? 0 : (i + 1);
+
+			float2 a = PolygonVertices[p * polygonMaxVertices + i];
+			float2 b = PolygonVertices[p * polygonMaxVertices + j];
+
+			float2 edge = b - a;
+			// Candidate normal (perpendicular to edge)
+			float2 normal = float2(edge.y, -edge.x);
+			// Ensure normal points outward by checking direction relative to centroid
+			float2 toCentroid = centrid - a;
+			if (dot(toCentroid, normal) > 0)
+			{
+				normal = -normal;
+			}
+			normal = normalize(normal);
+
+			float signedDist = dot(pos - a, normal);
+
+			// If point is outside for this edge, no collision with this polygon
+			if (signedDist > 0)
+			{
+				inside = false;
+				break;
+			}
+
+			if (signedDist > maxSignedDist)
+			{
+				maxSignedDist = signedDist;
+				bestNormal = normal;
+			}
+		}
+
+		if (inside)
+		{
+			// maxSignedDist is <= 0 (inside or on edge). Push particle out along bestNormal.
+			float penetration = -maxSignedDist;
+			if (penetration > 0)
+			{
+				float2 worldNormal = normalize(bestNormal);
+				pos += worldNormal * penetration;
+
+				// Reflect velocity about the collision normal
+				float vn = dot(vel, worldNormal);
+				if (vn < 0)
+				{
+					vel = vel - 2 * vn * worldNormal;
+					vel *= collisionDamping;
+				}
 			}
 		}
 	}
