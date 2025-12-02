@@ -9,7 +9,14 @@ Shader "Instanced/Particle2D" {
 		ZWrite Off
 
 		Pass {
-
+			    Stencil
+		    {
+		        Ref 1          // The value you're looking for
+		        Comp Equal     // Compare mode: render only where stencil == Ref
+		        Pass Keep      // Keep current stencil value
+			    Fail Keep
+				ZFail Keep
+		    }
 			CGPROGRAM
 
 			#pragma vertex vert
