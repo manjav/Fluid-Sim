@@ -13,6 +13,9 @@ namespace Seb.Fluid2D.Rendering
 		public Gradient colourMap;
 		public int gradientResolution;
 		public float velocityDisplayMax;
+		
+		[Header("Rendering Camera")]
+		public Camera targetCamera;
 
 		Material material;
 		ComputeBuffer argsBuffer;
@@ -30,8 +33,19 @@ namespace Seb.Fluid2D.Rendering
 			if (shader != null)
 			{
 				UpdateSettings();
-				Graphics.DrawMeshInstancedIndirect(mesh, 0, material, bounds, argsBuffer);
-			}
+				Graphics.DrawMeshInstancedIndirect(
+					mesh,
+					0,
+					material,
+					bounds,
+					argsBuffer,
+					0,
+					null,
+					UnityEngine.Rendering.ShadowCastingMode.Off,
+					false,
+					0,                  // layer (ignored if camera is set)
+					targetCamera        // the camera that will render only these particles
+				);			}
 		}
 
 		void UpdateSettings()
