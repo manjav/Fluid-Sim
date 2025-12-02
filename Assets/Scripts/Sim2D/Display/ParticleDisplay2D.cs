@@ -23,6 +23,7 @@ namespace Seb.Fluid2D.Rendering
 		void Start()
 		{
 			material = new Material(shader);
+			needsUpdate = true;
 		}
 
 		void LateUpdate()
