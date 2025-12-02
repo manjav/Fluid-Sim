@@ -93,6 +93,8 @@ namespace Seb.Fluid2D.Simulation
 
 		void Init()
 		{
+			if (compute == null) 
+				Debug.Log("Compute is missing");
 			float deltaTime = 1 / 60f;
 			Time.fixedDeltaTime = deltaTime;
 

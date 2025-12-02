@@ -8,4 +8,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Sim2D/Test B (2D).unity
     guid: f040fcd5cfc7f6b43a414ea1279489c5
+  - enabled: 0
+    path: Assets/Scenes/Sim2D/Empty Test Scene.unity
+    guid: ce1d85b2718823743ba8ce8c6ffbfa8f
   m_configObjects: {}
