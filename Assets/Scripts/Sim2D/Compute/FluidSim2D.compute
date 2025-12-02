@@ -155,159 +155,184 @@ float2 ExternalForces(float2 pos, float2 velocity)
 	return gravityAccel;
 }
 
+// ---------- helpers ----------
+
+// Closest point on segment AB to point P
+float2 ClosestPointOnSegment(float2 a, float2 b, float2 p)
+{
+    float2 ab = b - a;
+    float len2 = dot(ab, ab);
+    if (len2 <= 1e-8) return a; // degenerate segment
+
+    float t = dot(p - a, ab) / len2;
+    t = clamp(t, 0.0, 1.0);
+    return a + t * ab;
+}
+
+// Point-in-polygon using even-odd (ray crossing) rule
+bool PointInPolygon(float2 p, int vertexCount, uint baseIndex)
+{
+    bool inside = false;
+    for (int i = 0; i < vertexCount; ++i)
+    {
+        int j = (i + 1 == vertexCount) ? 0 : (i + 1);
+        float2 a = PolygonVertices[baseIndex + i];
+        float2 b = PolygonVertices[baseIndex + j];
+
+        // skip degenerate vertical span
+        float ay = a.y;
+        float by = b.y;
+
+        bool intersect = ((ay > p.y) != (by > p.y)) &&
+                         (p.x < (b.x - a.x) * (p.y - a.y) / (by - ay + 1e-12) + a.x);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+// ---------- updated HandleCollisions ----------
 
 void HandleCollisions(uint particleIndex)
 {
-	float2 pos = Positions[particleIndex];
-	float2 vel = Velocities[particleIndex];
+    float2 pos = Positions[particleIndex];
+    float2 vel = Velocities[particleIndex];
 
-	// Keep particle inside bounds
-	const float2 halfSize = boundsSize * 0.5;
-	float2 edgeDst = halfSize - abs(pos);
+    // Keep particle inside bounds
+    const float2 halfSize = boundsSize * 0.5;
+    float2 edgeDst = halfSize - abs(pos);
 
-	if (edgeDst.x <= 0)
-	{
-		pos.x = halfSize.x * sign(pos.x);
-		vel.x *= -1 * collisionDamping;
-	}
-	if (edgeDst.y <= 0)
-	{
-		pos.y = halfSize.y * sign(pos.y);
-		vel.y *= -1 * collisionDamping;
-	}
+    if (edgeDst.x <= 0)
+    {
+        pos.x = halfSize.x * sign(pos.x);
+        vel.x *= -1 * collisionDamping;
+    }
+    if (edgeDst.y <= 0)
+    {
+        pos.y = halfSize.y * sign(pos.y);
+        vel.y *= -1 * collisionDamping;
+    }
 
-	// Collide particle against all rectangular obstacles (with rotation)
-	for (uint i = 0; i < obstacleCount; i++)
-	{
-		float4 obstacle = Obstacles[i];
-		float2 obstacleCentre = obstacle.xy;
-		float2 obstacleHalfSize = obstacle.zw;
+    // Collide particle against all rectangular obstacles (with rotation)
+    for (uint i = 0; i < obstacleCount; i++)
+    {
+        float4 obstacle = Obstacles[i];
+        float2 obstacleCentre = obstacle.xy;
+        float2 obstacleHalfSize = obstacle.zw;
 
-		float2 rot = ObstacleRotations[i];
-		float c = rot.x;
-		float s = rot.y;
+        float2 rot = ObstacleRotations[i];
+        float c = rot.x;
+        float s = rot.y;
 
-		// Transform position into obstacle-local space (axis-aligned box)
-		float2 relPos = pos - obstacleCentre;
-		float2x2 worldToLocal = float2x2(c, s, -s, c);		// rotate by -theta
-		float2 localPos = mul(worldToLocal, relPos);
+        // Transform position into obstacle-local space (axis-aligned box)
+        float2 relPos = pos - obstacleCentre;
+        float2x2 worldToLocal = float2x2(c, s, -s, c);        // rotate by -theta
+        float2 localPos = mul(worldToLocal, relPos);
 
-		float2 obstacleEdgeDst = obstacleHalfSize - abs(localPos);
+        float2 obstacleEdgeDst = obstacleHalfSize - abs(localPos);
 
-		if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
-		{
-			float2x2 localToWorld = float2x2(c, -s, s, c);	// rotate by +theta
-			float2 localNormal;
+        if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
+        {
+            float2x2 localToWorld = float2x2(c, -s, s, c);    // rotate by +theta
+            float2 localNormal;
 
-			if (obstacleEdgeDst.x < obstacleEdgeDst.y)
-			{
-				// Push out along local X
-				localNormal = float2(sign(localPos.x), 0);
-				localPos.x = obstacleHalfSize.x * sign(localPos.x);
-			}
-			else
-			{
-				// Push out along local Y
-				localNormal = float2(0, sign(localPos.y));
-				localPos.y = obstacleHalfSize.y * sign(localPos.y);
-			}
+            if (obstacleEdgeDst.x < obstacleEdgeDst.y)
+            {
+                // Push out along local X
+                localNormal = float2(sign(localPos.x), 0);
+                localPos.x = obstacleHalfSize.x * sign(localPos.x);
+            }
+            else
+            {
+                // Push out along local Y
+                localNormal = float2(0, sign(localPos.y));
+                localPos.y = obstacleHalfSize.y * sign(localPos.y);
+            }
 
-			// Convert position and normal back to world space
-			float2 worldNormal = mul(localToWorld, localNormal);
-			worldNormal = normalize(worldNormal);
+            // Convert position and normal back to world space
+            float2 worldNormal = mul(localToWorld, localNormal);
+            float wnLen = length(worldNormal);
+            if (wnLen > 1e-8) worldNormal = worldNormal / wnLen;
+            else worldNormal = float2(0, 1);
 
-			pos = obstacleCentre + mul(localToWorld, localPos);
+            pos = obstacleCentre + mul(localToWorld, localPos);
 
-			// Reflect velocity about the collision normal
-			float vn = dot(vel, worldNormal);
-			if (vn < 0)
-			{
-				vel = vel - 2 * vn * worldNormal;
-				vel *= collisionDamping;
-			}
-		}
-	}
+            // Reflect velocity about the collision normal
+            float vn = dot(vel, worldNormal);
+            if (vn < 0)
+            {
+                vel = vel - 2 * vn * worldNormal;
+                vel *= collisionDamping;
+            }
+        }
+    }
 
-	// Collide particle against convex polygon obstacles
-	for (uint p = 0; p < polygonObstacleCount; p++)
-	{
-		int vertexCount = PolygonVertexCounts[p];
-		if (vertexCount < 3)
-		{
-			continue;
-		}
+    // Collide particle against polygon obstacles (concave-safe)
+    for (uint p = 0; p < polygonObstacleCount; p++)
+    {
+        int vertexCount = PolygonVertexCounts[p];
+        if (vertexCount < 3) continue;
 
-		// Approximate polygon centroid (used to determine outward normal direction)
-		float2 centrid = 0;
-		for (int i = 0; i < vertexCount; i++)
-		{
-			centrid += PolygonVertices[p * polygonMaxVertices + i];
-		}
-		centrid /= (float)vertexCount;
+        uint baseIndex = (uint)(p * polygonMaxVertices);
 
-		// Track deepest penetration (most negative signed distance)
-		float maxSignedDist = -1e9;
-		float2 bestNormal = float2(0, 0);
-		bool inside = true;
+        // First test if the point is inside the polygon (even-odd rule)
+        bool inside = PointInPolygon(pos, vertexCount, baseIndex);
+        if (!inside) continue;
 
-		for (int i = 0; i < vertexCount; i++)
-		{
-			int j = (i + 1) == vertexCount ? 0 : (i + 1);
+        // Find closest point on polygon boundary (all edges)
+        float bestDist2 = 1e30;
+        float2 bestClosest = float2(0, 0);
 
-			float2 a = PolygonVertices[p * polygonMaxVertices + i];
-			float2 b = PolygonVertices[p * polygonMaxVertices + j];
+        for (int i = 0; i < vertexCount; ++i)
+        {
+            int j = (i + 1 == vertexCount) ? 0 : (i + 1);
+            float2 a = PolygonVertices[baseIndex + i];
+            float2 b = PolygonVertices[baseIndex + j];
 
-			float2 edge = b - a;
-			// Candidate normal (perpendicular to edge)
-			float2 normal = float2(edge.y, -edge.x);
-			// Ensure normal points outward by checking direction relative to centroid
-			float2 toCentroid = centrid - a;
-			if (dot(toCentroid, normal) > 0)
-			{
-				normal = -normal;
-			}
-			normal = normalize(normal);
+            float2 cp = ClosestPointOnSegment(a, b, pos);
+            float d2 = dot(pos - cp, pos - cp);
+            if (d2 < bestDist2)
+            {
+                bestDist2 = d2;
+                bestClosest = cp;
+            }
+        }
 
-			float signedDist = dot(pos - a, normal);
+        // If we found a closest boundary point, push out along outward normal
+        if (bestDist2 < 1e29)
+        {
+            float dist = sqrt(max(bestDist2, 0.0));
+            if (dist > 1e-8)
+            {
+                // outward normal (from inside toward outside) = normalize(bestClosest - pos)
+                float2 worldNormal = bestClosest - pos;
+                float wnLen = length(worldNormal);
+                if (wnLen > 1e-8) worldNormal = worldNormal / wnLen;
+                else worldNormal = float2(0, 1);
 
-			// If point is outside for this edge, no collision with this polygon
-			if (signedDist > 0)
-			{
-				inside = false;
-				break;
-			}
+                // push particle out by penetration (minimal translation)
+                pos += worldNormal * dist;
 
-			if (signedDist > maxSignedDist)
-			{
-				maxSignedDist = signedDist;
-				bestNormal = normal;
-			}
-		}
+                // reflect velocity if it's moving into the polygon (vn < 0)
+                float vn = dot(vel, worldNormal);
+                if (vn < 0)
+                {
+                    vel = vel - 2 * vn * worldNormal;
+                    vel *= collisionDamping;
+                }
+            }
+            else
+            {
+                // On-edge or extremely close — nudge slightly along an arbitrary safe normal
+                pos += float2(0, 1e-4);
+            }
+        }
+    }
 
-		if (inside)
-		{
-			// maxSignedDist is <= 0 (inside or on edge). Push particle out along bestNormal.
-			float penetration = -maxSignedDist;
-			if (penetration > 0)
-			{
-				float2 worldNormal = normalize(bestNormal);
-				pos += worldNormal * penetration;
-
-				// Reflect velocity about the collision normal
-				float vn = dot(vel, worldNormal);
-				if (vn < 0)
-				{
-					vel = vel - 2 * vn * worldNormal;
-					vel *= collisionDamping;
-				}
-			}
-		}
-	}
-
-	// Update position and velocity
-	Positions[particleIndex] = pos;
-	Velocities[particleIndex] = vel;
+    // Update position and velocity
+    Positions[particleIndex] = pos;
+    Velocities[particleIndex] = vel;
 }
+
 
 [numthreads(NumThreads,1,1)]
 void ExternalForces(uint3 id : SV_DispatchThreadID)
