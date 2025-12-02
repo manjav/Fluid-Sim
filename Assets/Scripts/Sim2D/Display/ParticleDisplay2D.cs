@@ -22,6 +22,7 @@ namespace Seb.Fluid2D.Rendering
 
 		void Start()
 		{
+            Application.targetFrameRate = 60;
 			material = new Material(shader);
 			needsUpdate = true;
 		}
