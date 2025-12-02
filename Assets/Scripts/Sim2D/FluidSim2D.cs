@@ -8,6 +8,15 @@ namespace Seb.Fluid2D.Simulation
 {
 	public class FluidSim2D : MonoBehaviour
 	{
+		[System.Serializable]
+		public struct Obstacle2D
+		{
+			public Vector2 centre;
+			public Vector2 size;
+			[Tooltip("Rotation in degrees (counter-clockwise)")]
+			public float rotation;
+		}
+
 		public event System.Action SimulationStepCompleted;
 
 		[Header("Simulation Settings")]
@@ -22,8 +31,16 @@ namespace Seb.Fluid2D.Simulation
 		public float nearPressureMultiplier;
 		public float viscosityStrength;
 		public Vector2 boundsSize;
-		public Vector2 obstacleSize;
-		public Vector2 obstacleCentre;
+
+		[Header("Obstacles")]
+		[Tooltip("List of rectangular obstacles (centre + size) the fluid should collide with.")]
+		public Obstacle2D[] obstacles;
+
+		// Legacy single-obstacle fields (kept for backwards compatibility with existing scenes)
+		[FormerlySerializedAs("obstacleSize")]
+		[HideInInspector] public Vector2 legacyObstacleSize;
+		[FormerlySerializedAs("obstacleCentre")]
+		[HideInInspector] public Vector2 legacyObstacleCentre;
 
 		[Header("Interaction Settings")]
 		public float interactionRadius;
@@ -46,6 +63,8 @@ namespace Seb.Fluid2D.Simulation
 
 		ComputeBuffer predictedPositionBuffer;
 		SpatialHash spatialHash;
+		ComputeBuffer obstacleBuffer;
+		ComputeBuffer obstacleRotationBuffer;
 
 		// Kernel IDs
 		const int externalForcesKernel = 0;
@@ -109,6 +128,8 @@ namespace Seb.Fluid2D.Simulation
 			ComputeHelper.SetBuffer(compute, sortTarget_Velocity, "SortTarget_Velocities", reorderKernel, copybackKernel);
 
 			compute.SetInt("numParticles", numParticles);
+
+			InitObstacles();
 		}
 
 
@@ -175,8 +196,10 @@ namespace Seb.Fluid2D.Simulation
 			compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
 			compute.SetFloat("viscosityStrength", viscosityStrength);
 			compute.SetVector("boundsSize", boundsSize);
-			compute.SetVector("obstacleSize", obstacleSize);
-			compute.SetVector("obstacleCentre", obstacleCentre);
+
+			// Obstacles are uploaded once in InitObstacles. Here we just ensure count is up to date
+			int obstacleCount = obstacles != null ? obstacles.Length : 0;
+			compute.SetInt("obstacleCount", obstacleCount);
 
 			compute.SetFloat("Poly6ScalingFactor", 4 / (Mathf.PI * Mathf.Pow(smoothingRadius, 8)));
 			compute.SetFloat("SpikyPow3ScalingFactor", 10 / (Mathf.PI * Mathf.Pow(smoothingRadius, 5)));
@@ -235,7 +258,7 @@ namespace Seb.Fluid2D.Simulation
 
 		void OnDestroy()
 		{
-			ComputeHelper.Release(positionBuffer, predictedPositionBuffer, velocityBuffer, densityBuffer, sortTarget_Position, sortTarget_Velocity, sortTarget_PredicitedPosition);
+			ComputeHelper.Release(positionBuffer, predictedPositionBuffer, velocityBuffer, densityBuffer, sortTarget_Position, sortTarget_Velocity, sortTarget_PredicitedPosition, obstacleBuffer, obstacleRotationBuffer);
 			spatialHash.Release();
 		}
 
@@ -244,7 +267,24 @@ namespace Seb.Fluid2D.Simulation
 		{
 			Gizmos.color = new Color(0, 1, 0, 0.4f);
 			Gizmos.DrawWireCube(Vector2.zero, boundsSize);
-			Gizmos.DrawWireCube(obstacleCentre, obstacleSize);
+
+			// Draw obstacles
+			Matrix4x4 oldMatrix = Gizmos.matrix;
+			if (obstacles != null && obstacles.Length > 0)
+			{
+				foreach (var obstacle in obstacles)
+				{
+					Gizmos.matrix = Matrix4x4.TRS(obstacle.centre, Quaternion.Euler(0, 0, obstacle.rotation), Vector3.one);
+					Gizmos.DrawWireCube(Vector3.zero, obstacle.size);
+				}
+			}
+			else if (legacyObstacleSize != Vector2.zero)
+			{
+				// Fallback for scenes that still use the old single-obstacle fields
+				Gizmos.matrix = Matrix4x4.TRS(legacyObstacleCentre, Quaternion.identity, Vector3.one);
+				Gizmos.DrawWireCube(Vector3.zero, legacyObstacleSize);
+			}
+			Gizmos.matrix = oldMatrix;
 
 			if (Application.isPlaying)
 			{
@@ -259,5 +299,67 @@ namespace Seb.Fluid2D.Simulation
 				}
 			}
 		}
+
+		// --- Obstacles ---
+
+		void InitObstacles()
+		{
+			// If no obstacles have been explicitly set up, but legacy values exist,
+			// convert the legacy single obstacle into the new obstacle array.
+			if ((obstacles == null || obstacles.Length == 0) && legacyObstacleSize != Vector2.zero)
+			{
+				obstacles = new Obstacle2D[1];
+				obstacles[0] = new Obstacle2D
+				{
+					centre = legacyObstacleCentre,
+					size = legacyObstacleSize
+				};
+			}
+
+			int obstacleCount = obstacles != null ? obstacles.Length : 0;
+
+			// Release any previous buffers
+			ComputeHelper.Release(obstacleBuffer, obstacleRotationBuffer);
+
+			if (obstacleCount == 0)
+			{
+				compute.SetInt("obstacleCount", 0);
+				return;
+			}
+
+			// Pack obstacle data:
+			// - obstacleData: (centre.xy, halfSize.xy)
+			// - rotationData: (cos(theta), sin(theta))
+			float4[] obstacleData = new float4[obstacleCount];
+			float2[] rotationData = new float2[obstacleCount];
+			for (int i = 0; i < obstacleCount; i++)
+			{
+				Vector2 centre = obstacles[i].centre;
+				Vector2 halfSize = obstacles[i].size * 0.5f;
+				obstacleData[i] = new float4(centre.x, centre.y, halfSize.x, halfSize.y);
+				float radians = obstacles[i].rotation * Mathf.Deg2Rad;
+				rotationData[i] = new float2(Mathf.Cos(radians), Mathf.Sin(radians));
+			}
+
+			obstacleBuffer = ComputeHelper.CreateStructuredBuffer<float4>(obstacleCount);
+			obstacleBuffer.SetData(obstacleData);
+			obstacleRotationBuffer = ComputeHelper.CreateStructuredBuffer<float2>(obstacleCount);
+			obstacleRotationBuffer.SetData(rotationData);
+
+			ComputeHelper.SetBuffer(compute, obstacleBuffer, "Obstacles", updatePositionKernel);
+			ComputeHelper.SetBuffer(compute, obstacleRotationBuffer, "ObstacleRotations", updatePositionKernel);
+			compute.SetInt("obstacleCount", obstacleCount);
+		}
+
+#if UNITY_EDITOR
+		void OnValidate()
+		{
+			// Keep obstacle buffer in sync in the editor when values change
+			if (Application.isPlaying)
+			{
+				InitObstacles();
+			}
+		}
+#endif
 	}
 }
