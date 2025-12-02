@@ -318,7 +318,7 @@ MonoBehaviour:
   pressureMultiplier: 225
   nearPressureMultiplier: 18
   viscosityStrength: 0.03
-  boundsSize: {x: 5.45, y: 37.05}
+  boundsSize: {x: 5.45, y: 31.5}
   obstacles:
   - centre: {x: 1.09, y: -14.5}
     size: {x: 1, y: 1}
@@ -354,7 +354,7 @@ MonoBehaviour:
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
-  - position: {x: -0.21, y: 6}
+  - position: {x: -0.21, y: 3.27}
     size: {x: 0.55, y: 24}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
   showSpawnBoundsGizmos: 1
