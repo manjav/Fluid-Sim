@@ -310,7 +310,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   timeScale: 1
   maxTimestepFPS: 60
-  iterationsPerFrame: 3
+  iterationsPerFrame: 2
   gravity: -13
   collisionDamping: 0.117
   smoothingRadius: 0.2
@@ -318,7 +318,7 @@ MonoBehaviour:
   pressureMultiplier: 225
   nearPressureMultiplier: 18
   viscosityStrength: 0.03
-  boundsSize: {x: 5.45, y: 31.5}
+  boundsSize: {x: 4.82, y: 31.5}
   obstacles:
   - centre: {x: 1.09, y: -14.5}
     size: {x: 1, y: 1}
@@ -335,11 +335,18 @@ MonoBehaviour:
   polygonObstacles:
   - vertices:
     - {x: -2.28, y: -13.8}
-    - {x: -2.4, y: -15.2}
+    - {x: -1.78, y: -15.2}
     - {x: -1.33, y: -15.2}
     - {x: -1.33, y: -14.5}
     - {x: -1.68, y: -14.3}
     - {x: -1.5, y: -13.4}
+  - vertices:
+    - {x: 2.15, y: -13.8}
+    - {x: 1.93, y: -15.2}
+    - {x: 0.68, y: -15.2}
+    - {x: 0.93, y: -14.5}
+    - {x: 0.91, y: -14.3}
+    - {x: 1.83, y: -13.4}
   legacyObstacleSize: {x: 1.49, y: 5}
   legacyObstacleCentre: {x: 1.42, y: -1}
   interactionRadius: 2.5
@@ -358,15 +365,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 895837b52d5fc53409ded3589d4da696, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnDensity: 500
+  spawnDensity: 400
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
   - position: {x: -0.21, y: 3.27}
     size: {x: 0.55, y: 24}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
-  showSpawnBoundsGizmos: 1
-  spawnParticleCount: 6981
+  showSpawnBoundsGizmos: 0
+  spawnParticleCount: 5280
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
