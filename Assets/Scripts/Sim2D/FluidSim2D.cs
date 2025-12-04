@@ -3,6 +3,7 @@ using Seb.Helpers;
 using UnityEngine;
 using Unity.Mathematics;
 using UnityEngine.Serialization;
+using System.Collections.Generic;
 
 namespace Seb.Fluid2D.Simulation
 {
@@ -34,9 +35,10 @@ namespace Seb.Fluid2D.Simulation
         public Vector2 boundsSize;
         float2[] positionsCPU;
 
-        [Header("Obstacles")]
         [Tooltip("List of rectangular obstacles (centre + size) the fluid should collide with.")]
         public Obstacle2D[] obstacles;
+        [Tooltip("List of rectangular counter areas")]
+        public List<Rect> counterAreas;
 
         // Legacy single-obstacle fields (kept for backwards compatibility with existing scenes)
         [FormerlySerializedAs("obstacleSize")]
@@ -90,7 +92,17 @@ namespace Seb.Fluid2D.Simulation
         {
             Debug.Log("Controls: Space = Play/Pause, R = Reset, LMB = Attract, RMB = Repel");
 
+            InvokeRepeating("CountRect", 0, 1);
             Init();
+        }
+
+        void CountRect()
+        {
+            for (int i = 0; i < counterAreas.Count; i++)
+            {
+                int count = CountParticlesInsideRect(counterAreas[i]);
+                Debug.Log($"Particles inside rect {i}: " + count);
+            }
         }
 
         void Init()
@@ -287,6 +299,13 @@ namespace Seb.Fluid2D.Simulation
                 Gizmos.matrix = Matrix4x4.TRS(legacyObstacleCentre, Quaternion.identity, Vector3.one);
                 Gizmos.DrawWireCube(Vector3.zero, legacyObstacleSize);
             }
+
+            Gizmos.color =  Color.magenta;
+            foreach (var area in counterAreas)
+            {
+                Gizmos.DrawWireCube(area.center, area.size);
+            }
+
             Gizmos.matrix = oldMatrix;
 
             if (Application.isPlaying)
