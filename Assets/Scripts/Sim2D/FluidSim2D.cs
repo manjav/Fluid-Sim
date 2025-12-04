@@ -37,6 +37,7 @@ namespace Seb.Fluid2D.Simulation
 		public float pressureMultiplier;
 		public float nearPressureMultiplier;
 		public float viscosityStrength;
+        public float spacingScale = 1.0f;
 		public Vector2 boundsSize;
 
 		[Header("Obstacles")]
@@ -206,7 +207,7 @@ namespace Seb.Fluid2D.Simulation
 			compute.SetFloat("deltaTime", deltaTime);
 			compute.SetFloat("gravity", gravity);
 			compute.SetFloat("collisionDamping", collisionDamping);
-			compute.SetFloat("smoothingRadius", smoothingRadius);
+            compute.SetFloat("smoothingRadius", smoothingRadius * spacingScale);
 			compute.SetFloat("targetDensity", targetDensity);
 			compute.SetFloat("pressureMultiplier", pressureMultiplier);
 			compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
