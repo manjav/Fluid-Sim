@@ -78,7 +78,7 @@ namespace Seb.Fluid2D.Simulation
 		const int updatePositionKernel = 7;
 
 		// State
-		bool isPaused;
+        public bool isPaused;
 		Spawner2D.ParticleSpawnData spawnData;
 		bool pauseNextFrame;
 
