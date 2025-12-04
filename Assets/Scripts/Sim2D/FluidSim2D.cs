@@ -17,13 +17,6 @@ namespace Seb.Fluid2D.Simulation
 			public float rotation;
 		}
 
-		[System.Serializable]
-		public struct PolygonObstacle2D
-		{
-			[Tooltip("Convex polygon vertices in world-space, listed in clockwise or counter-clockwise order.")]
-			public Vector2[] vertices;
-		}
-
 		public event System.Action SimulationStepCompleted;
 
 		[Header("Simulation Settings")]
@@ -43,9 +36,6 @@ namespace Seb.Fluid2D.Simulation
 		[Header("Obstacles")]
 		[Tooltip("List of rectangular obstacles (centre + size) the fluid should collide with.")]
 		public Obstacle2D[] obstacles;
-
-		[Tooltip("Optional list of convex polygon obstacles (uses vertices in world-space).")]
-		public PolygonObstacle2D[] polygonObstacles;
 
 		// Legacy single-obstacle fields (kept for backwards compatibility with existing scenes)
 		[FormerlySerializedAs("obstacleSize")]
@@ -76,11 +66,6 @@ namespace Seb.Fluid2D.Simulation
 		SpatialHash spatialHash;
 		ComputeBuffer obstacleBuffer;
 		ComputeBuffer obstacleRotationBuffer;
-
-    	// Polygon obstacles
-		const int MaxPolygonVertices = 8;
-		ComputeBuffer polygonVertexBuffer;      // float2 [numPolygons * MaxPolygonVertices]
-		ComputeBuffer polygonVertexCountBuffer; // int [numPolygons]
 
 		// Kernel IDs
 		const int externalForcesKernel = 0;
@@ -146,7 +131,6 @@ namespace Seb.Fluid2D.Simulation
 			compute.SetInt("numParticles", numParticles);
 
 			InitObstacles();
-			InitPolygonObstacles();
 		}
 
 
@@ -218,10 +202,6 @@ namespace Seb.Fluid2D.Simulation
 			int obstacleCount = obstacles != null ? obstacles.Length : 0;
 			compute.SetInt("obstacleCount", obstacleCount);
 
-			int polygonCount = polygonObstacles != null ? polygonObstacles.Length : 0;
-			compute.SetInt("polygonObstacleCount", polygonCount);
-			compute.SetInt("polygonMaxVertices", MaxPolygonVertices);
-
 			compute.SetFloat("Poly6ScalingFactor", 4 / (Mathf.PI * Mathf.Pow(smoothingRadius, 8)));
 			compute.SetFloat("SpikyPow3ScalingFactor", 10 / (Mathf.PI * Mathf.Pow(smoothingRadius, 5)));
 			compute.SetFloat("SpikyPow2ScalingFactor", 6 / (Mathf.PI * Mathf.Pow(smoothingRadius, 4)));
@@ -279,7 +259,7 @@ namespace Seb.Fluid2D.Simulation
 
 		void OnDestroy()
 		{
-			ComputeHelper.Release(positionBuffer, predictedPositionBuffer, velocityBuffer, densityBuffer, sortTarget_Position, sortTarget_Velocity, sortTarget_PredicitedPosition, obstacleBuffer, obstacleRotationBuffer, polygonVertexBuffer, polygonVertexCountBuffer);
+			ComputeHelper.Release(positionBuffer, predictedPositionBuffer, velocityBuffer, densityBuffer, sortTarget_Position, sortTarget_Velocity, sortTarget_PredicitedPosition, obstacleBuffer, obstacleRotationBuffer);
 			spatialHash.Release();
 		}
 
@@ -306,22 +286,6 @@ namespace Seb.Fluid2D.Simulation
 				Gizmos.DrawWireCube(Vector3.zero, legacyObstacleSize);
 			}
 			Gizmos.matrix = oldMatrix;
-
-			// Draw polygon obstacles
-			if (polygonObstacles != null)
-			{
-				Gizmos.color = new Color(1, 0.5f, 0, 0.6f);
-				foreach (var poly in polygonObstacles)
-				{
-					if (poly.vertices == null || poly.vertices.Length < 2) continue;
-					for (int i = 0; i < poly.vertices.Length; i++)
-					{
-						Vector3 a = poly.vertices[i];
-						Vector3 b = poly.vertices[(i + 1) % poly.vertices.Length];
-						Gizmos.DrawLine(a, b);
-					}
-				}
-			}
 
 			if (Application.isPlaying)
 			{
@@ -386,65 +350,6 @@ namespace Seb.Fluid2D.Simulation
 			ComputeHelper.SetBuffer(compute, obstacleBuffer, "Obstacles", updatePositionKernel);
 			ComputeHelper.SetBuffer(compute, obstacleRotationBuffer, "ObstacleRotations", updatePositionKernel);
 			compute.SetInt("obstacleCount", obstacleCount);
-		}
-
-		void InitPolygonObstacles()
-		{
-			int polygonCount = polygonObstacles != null ? polygonObstacles.Length : 0;
-
-			// Release any previous buffers
-			ComputeHelper.Release(polygonVertexBuffer, polygonVertexCountBuffer);
-
-			if (polygonCount == 0)
-			{
-				compute.SetInt("polygonObstacleCount", 0);
-				return;
-			}
-
-			// Allocate buffers
-			int totalVertexSlots = polygonCount * MaxPolygonVertices;
-			polygonVertexBuffer = ComputeHelper.CreateStructuredBuffer<float2>(totalVertexSlots);
-			polygonVertexCountBuffer = ComputeHelper.CreateStructuredBuffer<int>(polygonCount);
-
-			var vertexData = new float2[totalVertexSlots];
-			var vertexCounts = new int[polygonCount];
-
-			for (int i = 0; i < polygonCount; i++)
-			{
-				int count = polygonObstacles[i].vertices != null ? Mathf.Min(polygonObstacles[i].vertices.Length, MaxPolygonVertices) : 0;
-				vertexCounts[i] = Mathf.Max(0, count);
-
-				for (int v = 0; v < MaxPolygonVertices; v++)
-				{
-					int dstIndex = i * MaxPolygonVertices + v;
-					if (v < count)
-					{
-						Vector2 p = polygonObstacles[i].vertices[v];
-						vertexData[dstIndex] = new float2(p.x, p.y);
-					}
-					else
-					{
-						// Repeat last valid vertex (or zero if none)
-						if (count > 0)
-						{
-							Vector2 p = polygonObstacles[i].vertices[count - 1];
-							vertexData[dstIndex] = new float2(p.x, p.y);
-						}
-						else
-						{
-							vertexData[dstIndex] = float2.zero;
-						}
-					}
-				}
-			}
-
-			polygonVertexBuffer.SetData(vertexData);
-			polygonVertexCountBuffer.SetData(vertexCounts);
-
-			ComputeHelper.SetBuffer(compute, polygonVertexBuffer, "PolygonVertices", updatePositionKernel);
-			ComputeHelper.SetBuffer(compute, polygonVertexCountBuffer, "PolygonVertexCounts", updatePositionKernel);
-			compute.SetInt("polygonObstacleCount", polygonCount);
-			compute.SetInt("polygonMaxVertices", MaxPolygonVertices);
 		}
 
 #if UNITY_EDITOR
